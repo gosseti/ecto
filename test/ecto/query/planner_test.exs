@@ -67,6 +67,18 @@ defmodule Ecto.Query.PlannerTest do
     end
   end
 
+  defmodule CompositePk do
+    use Ecto.Schema
+
+    @primary_key false
+    schema "composites" do
+      field :id_1, :string, primary_key: true
+      field :id_2, :integer, primary_key: true
+
+      many_to_many :posts, Ecto.Query.PlannerTest.Post, join_through: "composites_posts", join_keys: [[composite_id_1: :id_1, composite_id_2: :id_2], [post_id: :id]], join_where: [deleted: true]
+    end
+  end
+
   defmodule Post do
     use Ecto.Schema
 
@@ -92,6 +104,8 @@ defmodule Ecto.Query.PlannerTest do
       many_to_many :crazy_comments, Comment, join_through: CommentPost, where: [text: "crazycomment"]
       many_to_many :crazy_comments_with_list, Comment, join_through: CommentPost, where: [text: {:in, ["crazycomment1", "crazycomment2"]}], join_where: [deleted: true]
       many_to_many :crazy_comments_without_schema, Comment, join_through: "comment_posts", join_where: [deleted: true]
+
+      many_to_many :composites, CompositePk, join_through: "composites_posts", join_keys: [[post_id: :id], [composite_id_1: :id_1, composite_id_2: :id_2]], join_where: [deleted: true]
     end
   end
 
@@ -297,7 +311,7 @@ defmodule Ecto.Query.PlannerTest do
     assert {{"comments", _, _}, {"comments", _, _}} = query.sources
     assert [join1] = query.joins
     assert Enum.map(query.joins, & &1.ix) == [1]
-    assert Macro.to_string(join1.on.expr) == "&0.post_id() == &1.post_id()"
+    assert Macro.to_string(join1.on.expr) == "&1.post_id() == &0.post_id()"
 
     query = from(p in Comment, left_join: assoc(p, :post),
                                left_join: assoc(p, :post_comments)) |> plan |> elem(0)
@@ -306,14 +320,14 @@ defmodule Ecto.Query.PlannerTest do
     assert [join1, join2] = query.joins
     assert Enum.map(query.joins, & &1.ix) == [1, 2]
     assert Macro.to_string(join1.on.expr) == "&1.id() == &0.post_id()"
-    assert Macro.to_string(join2.on.expr) == "&0.post_id() == &2.post_id()"
+    assert Macro.to_string(join2.on.expr) == "&2.post_id() == &0.post_id()"
 
     query = from(p in Comment, left_join: assoc(p, :post_comments),
                                left_join: assoc(p, :post)) |> plan |> elem(0)
     assert {{"comments", _, _}, {"comments", _, _}, {"posts", _, _}} = query.sources
     assert [join1, join2] = query.joins
     assert Enum.map(query.joins, & &1.ix) == [1, 2]
-    assert Macro.to_string(join1.on.expr) == "&0.post_id() == &1.post_id()"
+    assert Macro.to_string(join1.on.expr) == "&1.post_id() == &0.post_id()"
     assert Macro.to_string(join2.on.expr) == "&2.id() == &0.post_id()"
   end
 
@@ -952,14 +966,14 @@ defmodule Ecto.Query.PlannerTest do
     {query, params, _select} =
       from(post in Post, join: comment in assoc(post, :crazy_comments_with_list)) |> normalize_with_params()
 
-    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.Comment, on: c2.comment_id == c1.id and c1.text in ^... and c2.deleted == ^..."
+    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.Comment, on: c1.id == c2.comment_id and c1.text in ^... and c2.deleted == ^..."
     assert params == ["crazycomment1", "crazycomment2", true]
 
     {query, params, _} =
       Ecto.assoc(%Post{id: 1}, :crazy_comments_with_list)
       |> normalize_with_params()
 
-    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.CommentPost, on: c0.id == c1.comment_id and c1.deleted == ^..."
+    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.CommentPost, on: c1.comment_id == c0.id and c1.deleted == ^..."
     assert inspect(query) =~ "where: c1.post_id in ^... and c0.text in ^..."
     assert params ==  [true, 1, "crazycomment1", "crazycomment2"]
   end
@@ -968,14 +982,44 @@ defmodule Ecto.Query.PlannerTest do
     {query, params, _select} =
       from(post in Post, join: comment in assoc(post, :crazy_comments_without_schema)) |> normalize_with_params()
 
-    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.Comment, on: c2.comment_id == c1.id and c2.deleted == ^..."
+    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.Comment, on: c1.id == c2.comment_id and c2.deleted == ^..."
     assert params == [true]
 
     {query, params, _} =
       Ecto.assoc(%Post{id: 1}, :crazy_comments_without_schema)
       |> normalize_with_params()
 
-    assert inspect(query) =~ "join: c1 in \"comment_posts\", on: c0.id == c1.comment_id and c1.deleted == ^..."
+    assert inspect(query) =~ "join: c1 in \"comment_posts\", on: c1.comment_id == c0.id and c1.deleted == ^..."
+    assert inspect(query) =~ "where: c1.post_id in ^..."
+    assert params ==  [true, 1]
+  end
+
+  test "normalize: many_to_many assoc join with composite keys on association" do
+    {query, params, _select} = from(post in Post, join: comment in assoc(post, :composites)) |> normalize_with_params()
+
+    assert inspect(query) =~ "join: c1 in Ecto.Query.PlannerTest.CompositePk, on: c1.id_1 == c2.composite_id_1 and c1.id_2 == c2.composite_id_2 and c2.deleted == ^..."
+    assert params == [true]
+
+    {query, params, _} =
+      Ecto.assoc(%Post{id: 1}, :composites)
+      |> normalize_with_params()
+
+    assert inspect(query) =~ "join: c1 in \"composites_posts\", on: c1.composite_id_1 == c0.id_1 and c1.composite_id_2 == c0.id_2 and c1.deleted == ^..."
+    assert inspect(query) =~ "where: c1.post_id in ^..."
+    assert params ==  [true, 1]
+  end
+
+  test "normalize: many_to_many assoc join with composite keys on owner" do
+    {query, params, _select} = from(compo in CompositePk, join: post in assoc(compo, :posts)) |> normalize_with_params()
+
+    assert inspect(query) =~ "join: p1 in Ecto.Query.PlannerTest.Post, on: p1.id == c2.post_id and c2.deleted == ^..."
+    assert params == [true]
+
+    {query, params, _} =
+      Ecto.assoc(%Post{id: 1}, :composites)
+      |> normalize_with_params()
+
+    assert inspect(query) =~ "join: c1 in \"composites_posts\", on: c1.composite_id_1 == c0.id_1 and c1.composite_id_2 == c0.id_2 and c1.deleted == ^..."
     assert inspect(query) =~ "where: c1.post_id in ^..."
     assert params ==  [true, 1]
   end
