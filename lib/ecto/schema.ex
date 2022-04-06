@@ -2005,12 +2005,12 @@ defmodule Ecto.Schema do
     opts = Keyword.update(opts, :foreign_key, [:"#{name}_id"], &List.wrap/1)
     foreign_key_type = opts[:type] || Module.get_attribute(mod, :foreign_key_type)
 
-    if [name] == Keyword.get(opts, :foreign_key) do
+    if name in Keyword.get(opts, :foreign_key) do
       raise ArgumentError, "foreign_key #{inspect name} must be distinct from corresponding association name"
     end
 
     if Keyword.get(opts, :define_field, true) do
-      foreign_keys = List.wrap(opts[:foreign_key])
+      foreign_keys = opts[:foreign_key]
       foreign_key_types = if is_list(foreign_key_type) do
         foreign_key_type
       else
