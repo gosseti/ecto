@@ -422,7 +422,7 @@ defmodule Ecto.Query.Builder do
     error! "Tuples can only be used in comparisons with literal tuples of the same size"
   end
 
-  # Unecessary parentheses around an expression
+  # Unnecessary parentheses around an expression
   def escape({:__block__, _, [expr]}, type, params_acc, vars, env) do
     escape(expr, type, params_acc, vars, env)
   end
@@ -851,6 +851,8 @@ defmodule Ecto.Query.Builder do
   defp escape_bind({{var, _, context}, ix}) when is_atom(var) and is_atom(context),
     do: {:pos, var, ix}
   defp escape_bind({{name, {var, _, context}}, _ix}) when is_atom(name) and is_atom(var) and is_atom(context),
+    do: {:named, var, name}
+  defp escape_bind({{name, {{:^, _, _} = var, _, context}}, _ix}) when is_atom(name) and is_atom(context),
     do: {:named, var, name}
   defp escape_bind({{{:^, _, [expr]}, {var, _, context}}, _ix}) when is_atom(var) and is_atom(context),
     do: {:named, var, expr}

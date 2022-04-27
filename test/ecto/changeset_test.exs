@@ -182,6 +182,14 @@ defmodule Ecto.ChangesetTest do
     assert changeset.changes == %{title: "", body: nil}
   end
 
+  test "cast/4: with nested empty values" do
+    params = %{"topics" => ["", "bar", ""]}
+    struct = %Post{topics: ["foo"]}
+
+    changeset = cast(struct, params, ~w(topics)a)
+    assert changeset.changes == %{topics: ["bar"]}
+  end
+
   test "cast/4: with custom empty values" do
     params = %{"title" => "empty", "body" => nil}
     struct = %Post{title: "foo", body: "bar"}
@@ -1824,6 +1832,12 @@ defmodule Ecto.ChangesetTest do
 
     assert constraints(changeset) ==
            [%{type: :unique, field: :permalink, constraint: "posts_url_color_index", match: :exact,
+              error_message: "has already been taken", error_type: :unique}]
+
+    changeset = change(%Post{}) |> unique_constraint([:permalink, :color], error_key: :color)
+
+    assert constraints(changeset) ==
+           [%{type: :unique, field: :color, constraint: "posts_url_color_index", match: :exact,
               error_message: "has already been taken", error_type: :unique}]
   end
 

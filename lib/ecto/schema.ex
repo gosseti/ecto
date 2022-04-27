@@ -1,8 +1,7 @@
 defmodule Ecto.Schema do
   @moduledoc ~S"""
-  Defines a schema.
+  An Ecto schema maps external data into Elixir structs.
 
-  An Ecto schema is used to map any data source into an Elixir struct.
   The definition of the schema is possible through two main APIs:
   `schema/2` and `embedded_schema/1`.
 
@@ -1374,7 +1373,7 @@ defmodule Ecto.Schema do
       |> where([t, ..., p], p.public == t.public)
 
   Another and preferred option is to rewrite to an explicit `join`, which
-  ellide the intermediate bindings as they are resolved only later on:
+  leaves out the intermediate bindings as they are resolved only later on:
 
       # keyword syntax
       from t in Tag,
@@ -1929,6 +1928,10 @@ defmodule Ecto.Schema do
     else
       source = opts[:source] || Module.get_attribute(mod, :field_source_mapper).(name)
 
+      if not is_atom(source) do
+        raise ArgumentError, "the :source for field `#{name}` must be an atom, got: #{inspect(source)}"
+      end
+
       if name != source do
         Module.put_attribute(mod, :ecto_field_sources, {name, source})
       end
@@ -1999,15 +2002,25 @@ defmodule Ecto.Schema do
   def __belongs_to__(mod, name, queryable, opts) do
     check_options!(opts, @valid_belongs_to_options, "belongs_to/3")
 
-    opts = Keyword.put_new(opts, :foreign_key, :"#{name}_id")
+    opts = Keyword.update(opts, :foreign_key, [:"#{name}_id"], &List.wrap/1)
     foreign_key_type = opts[:type] || Module.get_attribute(mod, :foreign_key_type)
 
-    if name == Keyword.get(opts, :foreign_key) do
+    if name in Keyword.get(opts, :foreign_key) do
       raise ArgumentError, "foreign_key #{inspect name} must be distinct from corresponding association name"
     end
 
     if Keyword.get(opts, :define_field, true) do
-      __field__(mod, opts[:foreign_key], foreign_key_type, opts)
+      foreign_keys = opts[:foreign_key]
+      foreign_key_types = if is_list(foreign_key_type) do
+        foreign_key_type
+      else
+        # TODO add a test for this branch
+        List.duplicate(foreign_key_type, length(foreign_keys))
+      end
+
+      for {fk, type} <- Enum.zip(foreign_keys, foreign_key_types) do
+        __field__(mod, fk, type, opts)
+      end
     end
 
     struct =

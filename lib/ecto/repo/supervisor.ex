@@ -154,6 +154,18 @@ defmodule Ecto.Repo.Supervisor do
     end
   end
 
+  @doc false
+  def tuplet(name, opts) do
+    adapter_meta = Ecto.Repo.Registry.lookup(name)
+
+    if opts[:stacktrace] || adapter_meta[:stacktrace] do
+      {:current_stacktrace, stacktrace} = :erlang.process_info(self(), :current_stacktrace)
+      {adapter_meta, Keyword.put(opts, :stacktrace, stacktrace)}
+    else
+      {adapter_meta, opts}
+    end
+  end
+
   ## Callbacks
 
   @doc false
@@ -183,8 +195,8 @@ defmodule Ecto.Repo.Supervisor do
   def start_child({mod, fun, args}, name, adapter, meta) do
     case apply(mod, fun, args) do
       {:ok, pid} ->
-        meta = Map.put(meta, :pid, pid)
-        Ecto.Repo.Registry.associate(self(), name, {adapter, meta})
+        meta = Map.merge(meta, %{pid: pid, adapter: adapter})
+        Ecto.Repo.Registry.associate(self(), name, meta)
         {:ok, pid}
 
       other ->

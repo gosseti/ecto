@@ -1647,10 +1647,17 @@ defmodule Ecto.Query.Planner do
   @doc """
   Puts the prefix given via `opts` into the given query, if available.
   """
-  def attach_prefix(query, opts) when is_list(opts) do
-    attach_prefix(query, Map.new(opts))
+  def attach_prefix(%{prefix: nil} = query, opts) when is_list(opts) do
+    case Keyword.fetch(opts, :prefix) do
+      {:ok, prefix} -> %{query | prefix: prefix}
+      :error -> query
+    end
   end
-  def attach_prefix(%{prefix: nil} = query, %{prefix: prefix}), do: %{query | prefix: prefix}
+
+  def attach_prefix(%{prefix: nil} = query, %{prefix: prefix}) do
+    %{query | prefix: prefix}
+  end
+
   def attach_prefix(query, _), do: query
 
   ## Helpers
@@ -1725,7 +1732,16 @@ defmodule Ecto.Query.Planner do
         type
 
       Map.has_key?(schema.__struct__(), field) ->
-        error! query, expr, "field `#{field}` in `#{kind}` is a virtual field in schema #{inspect schema}"
+        case schema.__schema__(:association, field) do
+          %Ecto.Association.BelongsTo{owner_key: owner_key} ->
+            error! query, expr, "field `#{field}` in `#{kind}` is an association in schema #{inspect schema}. " <>
+                                "Did you mean to use `#{inspect owner_key}`?"
+          %_{} ->
+            error! query, expr, "field `#{field}` in `#{kind}` is an association in schema #{inspect schema}"
+
+          _ ->
+            error! query, expr, "field `#{field}` in `#{kind}` is a virtual field in schema #{inspect schema}"
+        end
 
       true ->
         hint = closest_fields_hint(field, schema)

@@ -570,10 +570,11 @@ defmodule Ecto.Query.API do
   ## Warning: indexes on PostgreSQL
 
   PostgreSQL supports indexing on jsonb columns via GIN indexes.
-  However, `json_extract_path` uses the `#>` operator to access
-  json fields, which cannot be optimized by GIN indexes. Therefore,
-  for indexed jsonb columns, you want to consult PostgreSQL's
-  documentation and use the most appropriate operation.
+  Whenever comparing the value of a jsonb field against a string
+  or integer, Ecto will use the containement operator @> which
+  is optimized. You can even use the more efficient `jsonb_path_ops`
+  GIN index variant. For more information, consult PostgreSQL's docs
+  on [JSON indexing](https://www.postgresql.org/docs/current/datatype-json.html#JSON-INDEXING).
 
   ## Warning: return types
 
@@ -591,16 +592,6 @@ defmodule Ecto.Query.API do
   may return incorrect results or fail as the underlying database
   tries to compare incompatible types. You can, however, use `type/2`
   to force the types on the database level.
-
-  ## Warning: index usage
-
-  Some DBs offer indices types that allow faster querying of the JSON
-  fields, however this way of extracting **may not** create query that
-  will be able to utilise such index. Notable example of such behaviour
-  is PostgreSQL with GIN indices on JSON fields. This function will use
-  access operator (`#>`) that is not covered by the GIN index. In such cases,
-  consider using `fragment/1` alongside PostgreSQL built-in operators for
-  better performance.
   """
   def json_extract_path(json_field, path), do: doc! [json_field, path]
 

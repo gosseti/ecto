@@ -10,22 +10,23 @@ defmodule Ecto.Repo.Queryable do
 
   require Ecto.Query
 
-  def all(name, queryable, opts) when is_list(opts) do
+  def all(name, queryable, tuplet) do
     query =
       queryable
       |> Ecto.Queryable.to_query()
       |> Ecto.Query.Planner.ensure_select(true)
 
-    execute(:all, name, query, opts) |> elem(1)
+    execute(:all, name, query, tuplet) |> elem(1)
   end
 
-  def stream(name, queryable, opts) when is_list(opts) do
+  def stream(_name, queryable, {adapter_meta, opts}) do
+    %{adapter: adapter, cache: cache, repo: repo} = adapter_meta
+
     query =
       queryable
       |> Ecto.Queryable.to_query()
       |> Ecto.Query.Planner.ensure_select(true)
 
-    {adapter, %{cache: cache, repo: repo} = adapter_meta} = Ecto.Repo.Registry.lookup(name)
     {query, opts} = repo.prepare_query(:stream, query, opts)
     query = attach_prefix(query, opts)
     {query_meta, prepared, params} = Planner.query(query, :all, cache, adapter, 0)
@@ -142,39 +143,39 @@ defmodule Ecto.Repo.Queryable do
     %{query | combinations: combinations}
   end
 
-  def one(name, queryable, opts) do
-    case all(name, queryable, opts) do
+  def one(name, queryable, tuplet) do
+    case all(name, queryable, tuplet) do
       [one] -> one
       [] -> nil
       other -> raise Ecto.MultipleResultsError, queryable: queryable, count: length(other)
     end
   end
 
-  def one!(name, queryable, opts) do
-    case all(name, queryable, opts) do
+  def one!(name, queryable, tuplet) do
+    case all(name, queryable, tuplet) do
       [one] -> one
       [] -> raise Ecto.NoResultsError, queryable: queryable
       other -> raise Ecto.MultipleResultsError, queryable: queryable, count: length(other)
     end
   end
 
-  def update_all(name, queryable, [], opts) when is_list(opts) do
-    update_all(name, queryable, opts)
+  def update_all(name, queryable, [], tuplet) do
+    update_all(name, queryable, tuplet)
   end
 
-  def update_all(name, queryable, updates, opts) when is_list(opts) do
+  def update_all(name, queryable, updates, tuplet) do
     query = Query.from(queryable, update: ^updates)
-    update_all(name, query, opts)
+    update_all(name, query, tuplet)
   end
 
-  defp update_all(name, queryable, opts) do
+  defp update_all(name, queryable, tuplet) do
     query = Ecto.Queryable.to_query(queryable)
-    execute(:update_all, name, query, opts)
+    execute(:update_all, name, query, tuplet)
   end
 
-  def delete_all(name, queryable, opts) when is_list(opts) do
+  def delete_all(name, queryable, tuplet) do
     query = Ecto.Queryable.to_query(queryable)
-    execute(:delete_all, name, query, opts)
+    execute(:delete_all, name, query, tuplet)
   end
 
   @doc """
@@ -196,8 +197,9 @@ defmodule Ecto.Repo.Queryable do
 
   ## Helpers
 
-  defp execute(operation, name, query, opts) when is_list(opts) do
-    {adapter, %{cache: cache, repo: repo} = adapter_meta} = Ecto.Repo.Registry.lookup(name)
+  defp execute(operation, name, query, {adapter_meta, opts} = tuplet) do
+    %{adapter: adapter, cache: cache, repo: repo} = adapter_meta
+
     {query, opts} = repo.prepare_query(operation, query, opts)
     query = attach_prefix(query, opts)
     {query_meta, prepared, params} = Planner.query(query, operation, cache, adapter, 0)
@@ -222,7 +224,7 @@ defmodule Ecto.Repo.Queryable do
         {count,
          rows
          |> Ecto.Repo.Assoc.query(assocs, sources, preprocessor)
-         |> Ecto.Repo.Preloader.query(name, preloads, take, postprocessor, opts)}
+         |> Ecto.Repo.Preloader.query(name, preloads, take, postprocessor, tuplet)}
     end
   end
 

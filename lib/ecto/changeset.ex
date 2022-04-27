@@ -577,7 +577,7 @@ defmodule Ecto.Changeset do
   defp cast_field(key, param_key, type, params, current, empty_values, defaults, valid?) do
     case params do
       %{^param_key => value} ->
-        value = if value in empty_values, do: Map.get(defaults, key), else: value
+        value = filter_empty_values(type, value, empty_values, defaults, key)
         case Ecto.Type.cast(type, value) do
           {:ok, value} ->
             if Ecto.Type.equal?(type, current, value) do
@@ -595,6 +595,13 @@ defmodule Ecto.Changeset do
 
       _ ->
         :missing
+    end
+  end
+
+  defp filter_empty_values(type, value, empty_values, defaults, key) do
+    case Ecto.Type.filter_empty_values(type, value, empty_values) do
+      :empty -> Map.get(defaults, key)
+      {:ok, value} -> value
     end
   end
 
@@ -1299,16 +1306,34 @@ defmodule Ecto.Changeset do
             ]
           )
 
-    * changesets or structs - when a changeset or struct is given, they
-      are treated as the canonical data and the associated data currently
-      stored in the association is ignored. For instance, the operation
-      `put_assoc(changeset, :comments, [%Comment{id: 1, title: "changed"}])`
-      will send the `Comment` as is to the database, ignoring any comment
-      currently associated, even if a matching ID is found. If the comment
-      is already persisted to the database, then `put_assoc/4` only takes
-      care of guaranteeing that the comments and the parent data are associated.
-      This extremely useful when associating existing data, as we will see
-      in the "Example: Adding tags to a post" section.
+    * changesets - when changesets are given, they are treated as the canonical
+      data and the associated data currently stored in the association is either
+      updated or replaced. For example, if you call
+      `put_assoc(post_changeset, :comments, [list_of_comments_changesets])`,
+      all comments with matching IDs will be updated according to the changesets.
+      New comments or comments not associated to any post will be correctly
+      associated. Currently associated comments that do not have a matching ID
+      in the list of changesets will act according to the `:on_replace` association
+      configuration (you can chose to raise, ignore the operation, update or delete
+      them). If there are changes in any of the changesets, they will be
+      persisted too.
+
+    * structs - when structs are given, they are treated as the canonical data
+      and the associated data currently stored in the association is replaced.
+      For example, if you call
+      `put_assoc(post_changeset, :comments, [list_of_comments_structs])`,
+      all comments with matching IDs will be replaced by the new structs.
+      New comments or comments not associated to any post will be correctly
+      associated. Currently associated comments that do not have a matching ID
+      in the list of changesets will act according to the `:on_replace`
+      association configuration (you can chose to raise, ignore the operation,
+      update or delete them). Different to passing changesets, structs are not
+      change tracked in any fashion. In other words, if you change a comment
+      struct and give it to `put_assoc/4`, the updates in the struct won't be
+      persisted. You must use changesets instead. `put_assoc/4` with structs
+      only takes care of guaranteeing that the comments and the parent data
+      are associated. This is extremely useful when associating existing data,
+      as we will see in the "Example: Adding tags to a post" section.
 
   Once the parent changeset is given to an `Ecto.Repo` function, all entries
   will be inserted/updated/deleted within the same transaction.
@@ -1497,7 +1522,8 @@ defmodule Ecto.Changeset do
   Applies the changeset changes to the changeset data.
 
   This operation will return the underlying data with changes
-  regardless if the changeset is valid or not.
+  regardless if the changeset is valid or not. See `apply_action/2`
+  for a similar function that ensures the changeset is valid.
 
   ## Examples
 
@@ -1550,6 +1576,7 @@ defmodule Ecto.Changeset do
       {:error, %Changeset{changeset | action: action}}
     end
   end
+
   def apply_action(%Changeset{}, action) do
     raise ArgumentError, "expected action to be an atom, got: #{inspect action}"
   end
@@ -2646,6 +2673,10 @@ defmodule Ecto.Changeset do
       `:suffix` matches any repo constraint which `ends_with?` `:name`
        to this changeset constraint.
 
+    * `:error_key` - the key to which changeset error will be added when
+      check fails, defaults to the first field name of the given list of
+      fields.
+
   ## Complex constraints
 
   Because the constraint logic is in the database, we can leverage
@@ -2727,7 +2758,8 @@ defmodule Ecto.Changeset do
     constraint = opts[:name] || unique_index_name(changeset, fields)
     message    = message(opts, "has already been taken")
     match_type = Keyword.get(opts, :match, :exact)
-    add_constraint(changeset, :unique, to_string(constraint), match_type, first_field, message)
+    error_key  = Keyword.get(opts, :error_key, first_field)
+    add_constraint(changeset, :unique, to_string(constraint), match_type, error_key, message)
   end
 
   defp unique_index_name(changeset, fields) do
@@ -2820,7 +2852,7 @@ defmodule Ecto.Changeset do
     constraint = opts[:name] ||
       case get_assoc(changeset, assoc) do
         %Ecto.Association.BelongsTo{owner_key: owner_key} ->
-          "#{get_source(changeset)}_#{owner_key}_fkey"
+          "#{get_source(changeset)}_#{atom_concat owner_key}_fkey"
         other ->
           raise ArgumentError,
             "assoc_constraint can only be added to belongs to associations, got: #{inspect other}"
@@ -2871,7 +2903,7 @@ defmodule Ecto.Changeset do
       case get_assoc(changeset, assoc) do
         %Ecto.Association.Has{cardinality: cardinality,
                               related_key: related_key, related: related} ->
-          {opts[:name] || "#{related.__schema__(:source)}_#{related_key}_fkey",
+          {opts[:name] || "#{related.__schema__(:source)}_#{atom_concat related_key}_fkey",
            message(opts, no_assoc_message(cardinality))}
         other ->
           raise ArgumentError,
@@ -3087,6 +3119,12 @@ defmodule Ecto.Changeset do
     |> Enum.reverse()
     |> merge_keyword_keys(msg_func, changeset)
     |> merge_related_keys(changes, types, msg_func, &traverse_validations/2)
+  end
+
+  defp atom_concat(atoms) do
+    atoms
+    |> Enum.map(&Atom.to_string/1)
+    |> Enum.join("_")
   end
 end
 

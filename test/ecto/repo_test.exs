@@ -938,7 +938,7 @@ defmodule Ecto.RepoTest do
       assert schema.parent.__meta__.prefix == "private"
     end
 
-    test "insert, update and insert_or_update `nil` parent schema_prefix is overriden by children schema_prefix" do
+    test "insert, update and insert_or_update `nil` parent schema_prefix is overridden by children schema_prefix" do
       assert {:ok, schema} = TestRepo.insert(%MyParent{id: 1})
       assert schema.__meta__.prefix == nil
 
@@ -1661,13 +1661,13 @@ defmodule Ecto.RepoTest do
     test "stream" do
       query = from p in MyParent, select: p
       PrepareRepo.stream(query, [hello: :world]) |> Enum.to_list()
-      assert_received {:stream, ^query, [hello: :world]}
+      assert_received {:stream, ^query, _}
       assert_received {:stream, %{prefix: "rewritten"}}
     end
 
     test "preload" do
       PrepareRepo.preload(%MySchemaWithAssoc{parent_id: 1}, :parent, [hello: :world])
-      assert_received {:all, query, [hello: :world]}
+      assert_received {:all, query, _}
       assert query.from.source == {"my_parent", Ecto.RepoTest.MyParent}
     end
   end

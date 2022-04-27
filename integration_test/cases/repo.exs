@@ -20,7 +20,7 @@ defmodule Ecto.Integration.RepoTest do
 
   test "supports unnamed repos" do
     assert {:ok, pid} = TestRepo.start_link(name: nil)
-    assert Ecto.Repo.Queryable.all(pid, Post, []) == []
+    assert Ecto.Repo.Queryable.all(pid, Post, Ecto.Repo.Supervisor.tuplet(pid, [])) == []
   end
 
   test "all empty" do
@@ -150,6 +150,23 @@ defmodule Ecto.Integration.RepoTest do
     assert TestRepo.get_by!(PostUserCompositePk, [user_id: user.id, post_id: post.id]) == user_post
     TestRepo.delete!(user_post)
     assert TestRepo.all(PostUserCompositePk) == []
+  end
+
+  @tag :composite_pk
+  test "insert, update and delete with assoc over composite foreign key" do
+    composite = TestRepo.insert!(%CompositePk{a: 1, b: 2, name: "name"})
+    post = TestRepo.insert!(%Post{title: "post title", composite: composite})
+
+    assert post.composite_a == 1
+    assert post.composite_b == 2
+    assert TestRepo.get_by!(CompositePk, [a: 1, b: 2]) == composite
+
+    post = post |> Ecto.Changeset.change(composite: nil) |> TestRepo.update!
+    assert is_nil(post.composite_a)
+    assert is_nil(post.composite_b)
+
+    TestRepo.delete!(post)
+    assert TestRepo.all(CompositePk) == [composite]
   end
 
   @tag :invalid_prefix
@@ -712,8 +729,8 @@ defmodule Ecto.Integration.RepoTest do
 
     assert post1 == TestRepo.reload(post1)
     assert [post1, post2] == TestRepo.reload([post1, post2])
-    assert [post1, post2, nil] == TestRepo.reload([post1, post2, %Post{id: 55}])
-    assert nil == TestRepo.reload(%Post{id: 55})
+    assert [post1, post2, nil] == TestRepo.reload([post1, post2, %Post{id: 0}])
+    assert nil == TestRepo.reload(%Post{id: 0})
 
     # keeps order as received in the params
     assert [post2, post1] == TestRepo.reload([post2, post1])
